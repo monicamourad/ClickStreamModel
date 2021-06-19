@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from sklearn import model_selection
-from sklearn import metrics
+from sklearn import metrics , preprocessing
 import torch
 import torch.nn as nn
 import tez
@@ -21,9 +21,9 @@ class ProductDataset:
         event_weight=self.event_weights[item]
 
         return{
-            'user': torch.tensor(user,dtype=torch.long),
-            'product':torch.tensor(product,dtype=torch.long),
-            'event_weight':torch.tensor(event_weight,dtype=torch.float),
+            'users': torch.tensor(user,dtype=torch.long),
+            'products':torch.tensor(product,dtype=torch.long),
+            'event_weights':torch.tensor(event_weight,dtype=torch.float),
         }
 
 class RecSysModel(tez.Model):
@@ -48,7 +48,6 @@ class RecSysModel(tez.Model):
         return {"rmse" : np.sqrt(metrics.mean_squared_error(event_weight,output))}
 
     def forward(self,users,products,event_weights = None):
-        print("forward")
         user_embeds = self.user_embed(users)
         product_embeds = self.product_embed(products)
         output = torch.cat([user_embeds,product_embeds],dim=1)
@@ -90,10 +89,15 @@ def event_strength_to_rating():
 
 def train():
     df = pd.read_csv("Cleaned-2019-Oct.csv") #user_id,product_id,event_strength
+    lbl_user = preprocessing.LabelEncoder()
+    lbl_product = preprocessing.LabelEncoder()
+    df.user_id = lbl_user.fit_transform(df.user_id.values)
+    df.product_id = lbl_product.fit_transform(df.product_id.values)
+
     df_train,df_test = model_selection.train_test_split(df,test_size=0.1,random_state=42)
     train_dataset = ProductDataset( users = df_train.user_id.values, products = df_train.product_id.values, event_weights = df_train.event_strength.values)
     test_dataset = ProductDataset( users = df_test.user_id.values, products = df_test.product_id.values, event_weights = df_test.event_strength.values)
-    model = RecSysModel(num_users = df['user_id'].nunique(), num_products = df['product_id'].nunique())
+    model = RecSysModel(num_users = len(lbl_user.classes_), num_products = len(lbl_product.classes_))
     model.fit(train_dataset, test_dataset, valid_bs = 16, fp16= True,device="cpu")
 
 def main():
