@@ -1,6 +1,10 @@
+import numpy as np
 import pandas as pd
-import torch
-from fastai.vision.all import *
+from keras.models import load_model
+from sklearn.model_selection import train_test_split
+from keras.layers import Input, Embedding, Flatten, Dot, Dense, Concatenate
+from keras.models import Model
+
 
 def pre_processing():
     event_type_strength = {
@@ -33,24 +37,35 @@ def event_strength_to_rating():
 
 def shallow_learning():
     df_processed = pd.read_csv("Cleaned-2019-Oct.csv") 
-    """
-    ratings_small.csv has 3 columns - user_id, product_id, and event_strength
-    it is most generic data format for CF related data
-    """
+    n_items = df_processed['product_id'].nunique()
+    n_users = df_processed['user_id'].nunique()
+    train, test = train_test_split(df_processed, test_size=0.2, random_state=42)
 
-    val_indx = get_cv_idxs(len(df_processed))  # index for validation set
-    wd = 2e-4 # weight decay
-    n_factors = 50 # n_factors - dimension of embedding matrix (D)
+    # creating book embedding path
+    product_input = Input(shape=[1], name="Product-Input")
+    product_embedding = Embedding(n_items+1, 5, name="Product-Embedding")(product_input)
+    product_vec = Flatten(name="Flatten-Products")(product_embedding)
 
-    # data loader
-    cf = CollabFilterDataset.from_csv(path, 'ratings_small.csv', 'userId', 'movieId', 'rating')
+    # creating user embedding path
+    user_input = Input(shape=[1], name="User-Input")
+    user_embedding = Embedding(n_users+1, 5, name="User-Embedding")(user_input)
+    user_vec = Flatten(name="Flatten-Users")(user_embedding)
 
-    # learner initializes model object
-    learn = cf.get_learner(n_factors, val_indx, bs=64, opt_fn=optim.Adam)
+    # concatenate features
+    conc = Concatenate()([product_vec, user_vec])
+    # add fully-connected-layers
+    fc1 = Dense(128, activation='relu')(conc)
+    fc2 = Dense(32, activation='relu')(fc1)
+    out = Dense(1)(fc2)
 
-    # fitting model with 1e-2 learning rate, 2 epochs, 
-    # (1 cycle length and 2 cycle multiple for learning rate scheduling)
-    learn.fit(1e-2,2, wds = wd, cycle_len=1, cycle_mult=2)
+    # Create model and compile it
+    model2 = Model([user_input, product_input], out)
+    model2.compile('adam', 'mean_squared_error')
+
+    history = model2.fit([train.user_id, train.product_id], train.event_strength, epochs=5, verbose=1)
+    predictions = model2.predict([test.user_id.head(10), test.product_id.head(10)])
+    [print(predictions[i], test.event_strength.iloc[i]) for i in range(0,10)]
+
 def main():
    # pre_processing()
    # checking_data()
